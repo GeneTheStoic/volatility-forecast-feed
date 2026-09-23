@@ -51,7 +51,7 @@ PAIRS = {
     "USO": ("^OVX", "CBOE Crude Oil ETF Volatility Index, built from USO options",
             "USOIL", "USO holds oil futures; it is not spot crude or broker USOIL"),
     "QQQ": ("^VXN", "CBOE Nasdaq 100 Volatility Index, built from NDX options",
-            "NAS100", "QQQ ETF proxy for the Nasdaq 100, not a broker index CFD"),
+            "US100", "QQQ ETF proxy for the Nasdaq 100, not a broker index CFD"),
 }
 
 #--- three years of sessions. The engine refuses to fit on fewer than 100
