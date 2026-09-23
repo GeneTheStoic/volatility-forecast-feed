@@ -1,0 +1,44 @@
+name: Update volatility feeds
+
+# One flat JSON file per instrument, so the MQL5 parser stays simple.
+# The schedule is UTC, after the US close, when each index has its final value.
+
+on:
+  schedule:
+    - cron: "30 21,23 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy
+
+      - name: Rebuild the feeds
+        shell: bash
+        run: |
+          for ticker in GLD SPY USO QQQ; do
+            filename="vol_$(printf '%s' "$ticker" | tr '[:upper:]' '[:lower:]').json"
+            python volatility_forecast_feed.py --ticker "$ticker" --out "$filename"
+          done
+
+      - name: Commit the feeds if they changed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add vol_*.json
+          git diff --staged --quiet || git commit -m "Update volatility feeds"
+          git push
