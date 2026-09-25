@@ -54,17 +54,17 @@ PAIRS = {
             "US100", "QQQ ETF proxy for the Nasdaq 100, not a broker index CFD"),
 }
 
-#--- three years of sessions. The engine refuses to fit on fewer than 100
-#--- matched rows and spends 22 of them on the longest trailing window, so a
-#--- short history would be rejected at the far end for no reason
-HISTORY_DAYS = 756
+#--- The published history starts where the research sample starts, so the
+#--- engine can fit the reader's bars over the same years the tests covered
+#--- rather than over a short recent window. How much of it is used depends
+#--- on how much daily history the broker holds
+HISTORY_START = "2015-01-01"
 
-#--- The published history is sized for the engine. The reference diagnostics
-#--- are a different question and deserve everything available, because a
-#--- premium measured over three years and one measured over eleven are not
-#--- the same claim. Both are reported, and where they disagree that is the
-#--- finding rather than an error
-DIAG_START = "2015-01-01"
+#--- The reference diagnostics are measured twice, over the whole history and
+#--- over the most recent three years, because a premium measured over three
+#--- years and one measured over eleven are not the same claim. Where they
+#--- disagree, that is the finding rather than an error
+RECENT_DAYS = 756
 
 #--- a volatility index is quoted in annualized percent. The engine wants
 #--- annualized variance, because that is what it takes the logarithm of
@@ -113,10 +113,12 @@ def forward_win_rate(iv_series, rv_series, horizon=FORWARD_SESSIONS):
     padded, because a partial window understates realized variance and would
     flatter the implied side.
 
-    Returns (fraction, count), or (None, 0) when too little overlaps.
+    Returns (fraction, count), or (None, count) when fewer than 100 dates
+    overlap, so the caller can report how many there were.
 
-    Assumes both inputs are date-indexed and that iv_series is in annualized
-    variance while rv_series is in daily variance.
+    Assumes both inputs are date-indexed, that iv_series holds raw index
+    levels in annualized percent, which are converted to variance here, and
+    that rv_series holds daily variance.
     """
     rv = rv_series.sort_index()
     fwd = rv.rolling(horizon).mean().shift(-(horizon - 1)) * 252.0
@@ -173,13 +175,14 @@ def build(ticker, debug=False):
         raise FeedUnusable("%s is not one of %s" % (ticker, ", ".join(sorted(PAIRS))))
     index_ticker, index_note, local_hint, under_note = PAIRS[ticker]
 
-    idx = download(index_ticker, HISTORY_DAYS, debug, start=DIAG_START)
+    idx = download(index_ticker, RECENT_DAYS, debug, start=HISTORY_START)
     if "Close" not in idx.columns:
         raise FeedUnusable("%s carried no close" % index_ticker)
     iv_full = idx["Close"].dropna()
     iv_full = iv_full[iv_full > 0.0]
-    #--- the engine gets the recent tail; the diagnostics get everything
-    iv = iv_full.tail(HISTORY_DAYS)
+    #--- the engine gets the whole history; the recent tail is kept for the
+    #--- second measurement of the premium
+    iv = iv_full.tail(RECENT_DAYS)
     if len(iv) < 150:
         raise FeedUnusable("%s gave only %d usable closes" % (index_ticker, len(iv)))
 
@@ -187,12 +190,12 @@ def build(ticker, debug=False):
     #--- rather than one field of pairs, because that is the shape a small
     #--- MQL5 reader handles directly: StringSplit on a comma, then
     #--- StringToTime on a YYYY.MM.DD date. The JSON stays flat either way
-    dates = ",".join(stamp.strftime("%Y.%m.%d") for stamp in iv.index)
-    values = ",".join("%.8f" % index_to_variance(level) for level in iv.values)
+    dates = ",".join(stamp.strftime("%Y.%m.%d") for stamp in iv_full.index)
+    values = ",".join("%.8f" % index_to_variance(level) for level in iv_full.values)
 
     #--- reference only: what the fund's own bars say. Downloaded over the long
     #--- diagnostic window, then measured twice, because the answer moves
-    und = download(ticker, HISTORY_DAYS, debug, start=DIAG_START)
+    und = download(ticker, RECENT_DAYS, debug, start=HISTORY_START)
     need = ("Open", "High", "Low", "Close")
     if any(col not in und.columns for col in need):
         raise FeedUnusable("%s carried incomplete bars" % ticker)
@@ -210,10 +213,10 @@ def build(ticker, debug=False):
     if len(rv) < 150:
         raise FeedUnusable("%s produced only %d usable variance days" % (ticker, len(rv)))
 
-    #--- the fund figures quoted alongside the published history describe the
-    #--- same recent window the history covers, so they can be compared to it
-    rv_recent = rv.tail(HISTORY_DAYS)
-    on_recent = on.tail(HISTORY_DAYS)
+    #--- the fund figures quoted alongside the history describe the recent
+    #--- three years, the window the recent premium is measured over
+    rv_recent = rv.tail(RECENT_DAYS)
+    on_recent = on.tail(RECENT_DAYS)
     overnight_share = float(on_recent.sum() / rv_recent.sum())
     rv_ann = float(rv_recent.mean() * 252.0)
     iv_ann = float(np.mean([index_to_variance(x) for x in iv]))
@@ -236,15 +239,16 @@ def build(ticker, debug=False):
         "symbol": ticker,
         #--- the reader prints this beside the implied figure, so it names the
         #--- date the quote belongs to rather than the moment of the download
-        "asof": iv.index[-1].strftime("%Y.%m.%d"),
+        "asof": iv_full.index[-1].strftime("%Y.%m.%d"),
         "underlying_note": under_note,
         "index": index_ticker.lstrip("^"),
         "index_note": index_note,
         "local_symbol_hint": local_hint,
         "quantity": "annualized variance, risk neutral",
-        "iv_days": int(len(iv)),
-        "iv_first": iv.index[0].strftime("%Y-%m-%d"),
-        "iv_last": iv.index[-1].strftime("%Y-%m-%d"),
+        "iv_days": int(len(iv_full)),
+        "iv_first": iv_full.index[0].strftime("%Y-%m-%d"),
+        "iv_last": iv_full.index[-1].strftime("%Y-%m-%d"),
+        "recent_from": iv.index[0].strftime("%Y-%m-%d"),
         "iv_latest_var": round(index_to_variance(latest_level), 8),
         "iv_latest_vol_pct": round(latest_level, 4),
         "iv_mean_var": round(iv_ann, 8),
@@ -255,10 +259,11 @@ def build(ticker, debug=False):
         "ref_fund_rv_vol_pct": round(100.0 * math.sqrt(rv_ann), 4),
         "ref_fund_overnight_share": round(overnight_share, 4),
         #--- two different questions, kept apart on purpose. The ratio asks by
-        #--- how much implied exceeded realized on average. The win rate asks
-        #--- how often it did at all, looking forward, which is the figure the
-        #--- literature quotes near 80 percent
-        "ref_premium_ratio": round(iv_ann / rv_ann, 4) if rv_ann > 0 else None,
+        #--- how much implied exceeded realized on average, in VARIANCE, over
+        #--- the recent window; its square root is the matching volatility
+        #--- ratio. The win rate asks how often implied exceeded forward
+        #--- realized at all, which is the figure the literature quotes
+        "ref_premium_var_ratio": round(iv_ann / rv_ann, 4) if rv_ann > 0 else None,
         "ref_premium_win_recent": round(win_recent, 4) if win_recent is not None else None,
         "ref_premium_days_recent": n_recent,
         "ref_premium_win_full": round(win_full, 4) if win_full is not None else None,
@@ -303,7 +308,7 @@ def main():
         return 0
 
     #--- the history is long, so the printed object shows everything else and
-    #--- reports the history by its shape rather than dumping sixteen kilobytes
+    #--- reports the history by its shape rather than dumping tens of kilobytes
     shown = dict(feed)
     shown["dates"] = "<%d dates, %s to %s>" % (
         feed["iv_days"], feed["iv_first"], feed["iv_last"])
@@ -318,17 +323,17 @@ def main():
     print("\n%s against %s, %d sessions, %s to %s"
           % (feed["symbol"], feed["index"], feed["iv_days"],
              feed["iv_first"], feed["iv_last"]))
-    print("implied now %.2f%% a year; the fund itself realized %.2f%% over the window"
+    print("implied now %.2f%% a year; the fund itself realized %.2f%% over the recent window"
           % (feed["iv_latest_vol_pct"], feed["ref_fund_rv_vol_pct"]))
-    print("fund overnight share %.1f%% over the published window"
+    print("fund overnight share %.1f%% over the recent window"
           % (100.0 * feed["ref_fund_overnight_share"]))
     print()
     print("variance premium, measured twice")
-    if feed["ref_premium_ratio"] is not None:
-        print("  ratio of means, published window       %.3f" % feed["ref_premium_ratio"])
+    if feed["ref_premium_var_ratio"] is not None:
+        print("  ratio of mean variances, recent window  %.3f" % feed["ref_premium_var_ratio"])
     if feed["ref_premium_win_recent"] is not None:
         print("  implied above forward realized, %s to %s   %.1f%% of %d dates"
-              % (feed["iv_first"], feed["iv_last"],
+              % (feed["recent_from"], feed["iv_last"],
                  100.0 * feed["ref_premium_win_recent"], feed["ref_premium_days_recent"]))
     if feed["ref_premium_win_full"] is not None:
         print("  implied above forward realized, %s to %s   %.1f%% of %d dates"
