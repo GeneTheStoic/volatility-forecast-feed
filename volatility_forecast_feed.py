@@ -11,7 +11,7 @@ six-and-a-half hour session leaves seventeen hours for news to arrive; a
 twenty-three hour session leaves one. A forecast fitted on the fund's bars
 would be a forecast for the fund, not for the instrument on the chart.
 
-The implied series is a CBOE volatility index rather than a recovered option
+The implied series is a Cboe volatility index rather than a recovered option
 chain. GVZ is built from GLD options, VIX from SPX options, OVX from USO
 options and VXN from NDX options. The indices are free, carry years of
 history, and keep this script small.
@@ -39,18 +39,18 @@ class FeedUnusable(Exception):
     """Raised when the inputs cannot support an honest feed."""
 
 
-#--- each optionable fund, the CBOE index built from its options, and the
+#--- each optionable fund, the Cboe index built from its options, and the
 #--- local symbol a reader is most likely to pair it with. The local name is
 #--- a hint printed in the feed, never something this script acts on, because
 #--- broker symbol names vary and only the reader knows theirs
 PAIRS = {
-    "GLD": ("^GVZ", "CBOE Gold ETF Volatility Index, built from GLD options",
+    "GLD": ("^GVZ", "Cboe Gold ETF Volatility Index, built from GLD options",
             "XAUUSD", "GLD ETF proxy for gold, not spot gold or broker XAUUSD"),
-    "SPY": ("^VIX", "CBOE Volatility Index, built from SPX options",
+    "SPY": ("^VIX", "Cboe Volatility Index, built from SPX options",
             "US500", "SPY ETF proxy for the S&P 500, not a broker index CFD"),
-    "USO": ("^OVX", "CBOE Crude Oil ETF Volatility Index, built from USO options",
+    "USO": ("^OVX", "Cboe Crude Oil ETF Volatility Index, built from USO options",
             "USOIL", "USO holds oil futures; it is not spot crude or broker USOIL"),
-    "QQQ": ("^VXN", "CBOE Nasdaq 100 Volatility Index, built from NDX options",
+    "QQQ": ("^VXN", "Cboe Nasdaq 100 Volatility Index, built from NDX options",
             "US100", "QQQ ETF proxy for the Nasdaq 100, not a broker index CFD"),
 }
 
