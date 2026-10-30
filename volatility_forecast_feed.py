@@ -97,9 +97,9 @@ def daily_variance(o, h, l, c, prev_c):
     return gap * gap, np.clip(gk, 0.0, None)
 
 
-#--- a volatility index quoted today describes the next thirty calendar days,
-#--- which is about twenty-one sessions. Comparing it against the same day's
-#--- realized variance would be comparing a forecast against yesterday
+#--- a volatility index quoted at the close of day t describes the next
+#--- thirty calendar days, about twenty-one sessions. Day t has already
+#--- happened when the quote is final, so the window starts at t+1
 FORWARD_SESSIONS = 21
 
 
@@ -107,9 +107,10 @@ def forward_win_rate(iv_series, rv_series, horizon=FORWARD_SESSIONS):
     """
     How often the implied quote exceeded what the underlying then realized.
 
-    For each date carrying an implied quote, the realized variance over the
-    next `horizon` sessions is averaged and annualized, and the two are
-    compared. Dates without a full forward window are dropped rather than
+    For each date t carrying an implied quote, the realized variance of the
+    sessions t+1 to t+horizon is averaged and annualized, and the two are
+    compared. Session t itself is excluded: its variance is already known
+    when the quote for t is final. Dates without a full forward window are dropped rather than
     padded, because a partial window understates realized variance and would
     flatter the implied side.
 
@@ -121,7 +122,9 @@ def forward_win_rate(iv_series, rv_series, horizon=FORWARD_SESSIONS):
     that rv_series holds daily variance.
     """
     rv = rv_series.sort_index()
-    fwd = rv.rolling(horizon).mean().shift(-(horizon - 1)) * 252.0
+    #--- rolling(horizon) at row j averages rows j-horizon+1..j, so shifting
+    #--- it back by horizon rows puts the mean of t+1..t+horizon on row t
+    fwd = rv.rolling(horizon).mean().shift(-horizon) * 252.0
     above = 0
     n = 0
     for stamp, level in iv_series.items():
